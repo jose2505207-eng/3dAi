@@ -1,0 +1,33 @@
+# Secrets / environment
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+
+# Generated CAD / simulation artifacts (keep source code, not outputs)
+outputs/
+*.step
+*.stp
+*.stl
+*.brep
+*.frd
+*.dat
+*.cvg
+*.sta
+
+# Generated wiki artifacts (rebuilt from page frontmatter — see wiki/SCHEMA.md)
+wiki/index.md
+
+# Hook logs
+.wiki-hook.log

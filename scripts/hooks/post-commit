@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# post-commit — headless wiki update after each commit. DISABLED BY DEFAULT:
+# this file lives outside .git/hooks, so git never runs it until you opt in:
+#
+#   ln -s ../../scripts/hooks/post-commit .git/hooks/post-commit
+#
+# (remove the symlink to disable again). Left off by default because every
+# commit then triggers a headless Claude run, which costs tokens — test the
+# skill manually via /wiki-update before trusting it here.
+#
+# Escape hatch for a single commit: WIKI_HOOK=off git commit ...
+set -euo pipefail
+
+[ "${WIKI_HOOK:-on}" = "off" ] && exit 0
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+# Skip commits that only touch the wiki or this tooling — updating the wiki in
+# response to a wiki commit would just churn (and the skill never commits, so
+# there is no recursion risk regardless).
+if git diff-tree --no-commit-id --name-only -r HEAD \
+    | grep -qv -e '^wiki/' -e '^\.claude/' -e '^scripts/hooks/'; then
+  :
+else
+  exit 0
+fi
+
+command -v claude >/dev/null 2>&1 || {
+  echo "post-commit wiki hook: 'claude' CLI not found; skipping." >&2
+  exit 0
+}
+
+log_file="$repo_root/.wiki-hook.log"
+{
+  echo "=== $(date -Is) wiki-maintainer run for $(git rev-parse --short HEAD) ==="
+  # acceptEdits lets the skill edit wiki/*.md headlessly; the skill itself
+  # never commits — review the working-tree diff it leaves behind.
+  claude -p "Use the wiki-maintainer skill on range HEAD~1..HEAD (workflow: update-from-diff). Headless run: apply the wiki edits to the working tree, do not commit." \
+    --permission-mode acceptEdits
+} >>"$log_file" 2>&1 || {
+  echo "post-commit wiki hook: run failed; see .wiki-hook.log" >&2
+  exit 0  # never block or fail the commit itself
+}
+
+echo "post-commit wiki hook: wiki updated in working tree (uncommitted); see .wiki-hook.log" >&2

@@ -25,10 +25,18 @@ def main(argv: list[str] | None = None) -> int:
         description="Layer 1 deterministic checks on a Module 1 run dir")
     parser.add_argument("run_dir", type=Path,
                         help="Module 1 output dir (part.step + run_record.json)")
+    parser.add_argument("--no-fea", action="store_true",
+                        help="skip Layer 2 FEA (fea_static reports not_run)")
+    parser.add_argument("--mesh-size", type=float, default=None,
+                        help="FEA mesh size in mm (default: bbox diagonal / 20)")
+    parser.add_argument("--fea-timeout", type=float, default=300.0,
+                        help="ccx solve timeout in seconds (default 300)")
     args = parser.parse_args(argv)
 
     try:
-        report = run_checks(args.run_dir)
+        report = run_checks(args.run_dir, with_fea=not args.no_fea,
+                            fea_mesh_size_mm=args.mesh_size,
+                            fea_timeout_s=args.fea_timeout)
     except RunDirError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

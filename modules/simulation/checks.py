@@ -207,10 +207,12 @@ def _not_run_all(names: list[str], reason: str) -> list[CheckResult]:
     return [CheckResult(name, NOT_RUN, reason=reason) for name in names]
 
 
-def run_checks(run_dir: Path) -> SimReport:
-    """Run all Layer 1 checks on a Module 1 run dir. Raises RunDirError for
-    contract violations (missing dir/inputs) — everything else is an honest
-    check outcome inside the report."""
+def run_checks(run_dir: Path, with_fea: bool = True,
+               fea_mesh_size_mm: float | None = None,
+               fea_timeout_s: float = 300.0) -> SimReport:
+    """Run all Layer 1 checks (+ Layer 2 FEA unless disabled) on a Module 1
+    run dir. Raises RunDirError for contract violations (missing dir/inputs)
+    — everything else is an honest check outcome inside the report."""
     run_dir = Path(run_dir)
     if not run_dir.is_dir():
         raise RunDirError(f"{run_dir} is not a directory")
@@ -223,6 +225,7 @@ def run_checks(run_dir: Path) -> SimReport:
     facts = inspect_step(step_path)
     checks = [check_geometry_valid(facts)]
     material = None
+    fea_block = None
     if facts.loaded:
         checks.append(check_single_body(facts))
         checks.append(check_bounding_box(facts, parameters))
@@ -230,10 +233,18 @@ def run_checks(run_dir: Path) -> SimReport:
         checks.append(mass_check)
         checks.append(check_min_wall_thickness(facts))
         checks.append(check_hole_geometry(facts, parameters))
+        if not with_fea:
+            checks.append(CheckResult("fea_static", NOT_RUN,
+                                      reason="disabled via --no-fea"))
+        else:
+            checks_fea, fea_block = _run_fea_layer(
+                step_path, run_dir, parameters, run_record.get("prompt", ""),
+                fea_mesh_size_mm, fea_timeout_s)
+            checks.append(checks_fea)
     else:
         checks += _not_run_all(
             ["single_body", "bounding_box", "mass_budget",
-             "min_wall_thickness", "hole_geometry"],
+             "min_wall_thickness", "hole_geometry", "fea_static"],
             f"geometry could not be loaded: {facts.error}")
 
     stl_prov = file_provenance(run_dir / "part.stl")
@@ -250,4 +261,19 @@ def run_checks(run_dir: Path) -> SimReport:
                                "Layer 1 checks but a Module 1 contract violation")
 
     return SimReport(verdict=SimReport.verdict_of(checks), checks=checks,
-                     material=material, provenance=provenance)
+                     material=material, fea=fea_block, provenance=provenance)
+
+
+def _run_fea_layer(step_path: Path, run_dir: Path, parameters: dict, prompt: str,
+                   mesh_size_mm: float | None,
+                   timeout_s: float) -> tuple[CheckResult, dict | None]:
+    """Layer 2 entry. Material resolution failures become an honest not_run;
+    everything deeper is handled inside fea.run_fea."""
+    from modules.simulation.fea import run_fea  # gmsh import cost only when used
+    try:
+        material = resolve_material()
+    except UnknownMaterialError as exc:
+        return CheckResult("fea_static", NOT_RUN,
+                           reason=f"cannot resolve material: {exc}"), None
+    return run_fea(step_path, run_dir / "fea", material, parameters, prompt,
+                   mesh_size_mm=mesh_size_mm, timeout_s=timeout_s)

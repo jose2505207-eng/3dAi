@@ -105,3 +105,35 @@ Append-only; newest entry at the bottom. Format defined in wiki/SCHEMA.md.
 - source: uncommitted changes (git diff HEAD — modules/design/{prompts,
   sandbox,runner,loop,tests/test_sandbox}.py); live runs
   outputs/design/20260707-172325-* (fail) and 20260707-182230-* (gates pass).
+
+## 2026-07-07 — Module 3, orchestrator + web UI, container, auth/tunnel (workflow: update-from-diff)
+
+- module-3-analysis.md: planned → implemented. Behavior as built: refuses
+  half-run dirs (analyze.py:63), run_analysis API (analyze.py:91), CLI exit
+  codes with inputs validated before client creation (__main__.py:39),
+  prompt contract (BCs verbatim, not_run with reasons — prompts.py:13),
+  numeric grounding heuristic with its documented false-positive class
+  (grounding.py:53,69; live run flagged the model's own correct arithmetic),
+  the sentence-final-number regex lesson (grounding.py:20), test inventory.
+- module-2-simulation.md: gmsh initialized interruptible=False — SIGINT
+  handler is main-thread-only, orchestrator runs run_checks in a worker
+  thread (mesher.py:63); shifted mesher citations refreshed; install docs
+  sentence now covers libglu1-mesa and the trixie-dropped-ccx gotcha.
+- architecture.md: in-progress → implemented. New "Orchestrator + web UI"
+  section: run_pipeline partial-failure semantics (pipeline.py:48,83),
+  job-thread server + whitelisted artifacts (server.py:112,127,139), Basic
+  Auth middleware covering the StaticFiles mount with boot-refusal on
+  missing credentials (server.py:54,60), three.js viewer
+  (static/index.html:56). Build order marked complete with the live
+  end-to-end verification note.
+- infra-gemma-vllm-amd.md: new "Container and deployment" section — bookworm
+  pin rationale (Dockerfile:28), failure-justified apt libs (Dockerfile:33),
+  system-python-no-venv rationale (Dockerfile:52), in-image test results,
+  runtime-env-only config, and the 127.0.0.1 + cloudflared quick-tunnel
+  deployment with its URL-changes-on-restart caveat (Dockerfile:14).
+- Wikilink check: all links resolve, no red links. index.md regenerated
+  (module-3-analysis and architecture now implemented).
+- source: git range 32ab86e..HEAD (17058c0 container, af96f40 sim README,
+  60b8252 Module 3, 5ce0c17 mesher thread fix, 7153268 orchestrator+UI,
+  c733238 docker fastapi) + uncommitted auth-gate/tunnel changes
+  (orchestrator/server.py, Dockerfile, static/index.html).

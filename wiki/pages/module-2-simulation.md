@@ -74,8 +74,12 @@ refusing reason-less failures (modules/simulation/tests/test_checks.py).
 
 Pipeline: gmsh SDK meshes `part.step` to 2nd-order tets (C3D10) and writes
 the Abaqus-format mesh itself — gmsh owns the gmsh→Abaqus midside-node
-reordering (modules/simulation/mesher.py:53,78,105; a physical volume group
-keeps stray section-less 2D shells out of the deck, mesher.py:68-71). We
+reordering (modules/simulation/mesher.py:53,80,107; a physical volume group
+keeps stray section-less 2D shells out of the deck, mesher.py:70-73). gmsh
+is initialized with `interruptible=False`: the default installs a SIGINT
+handler that raises "signal only works in main thread" when `run_checks`
+runs in a worker thread, as the [[architecture|orchestrator]] server does
+(mesher.py:63). We
 append node sets / material / static step cards and run `ccx`
 (modules/simulation/ccx.py:50,69), then parse max von Mises and max
 displacement from the fixed-width `.frd` (ccx.py:93). Raw artifacts stay in
@@ -120,7 +124,10 @@ BC-heuristic assertions on the 4-hole plate, no-holes / no-load-magnitude ⇒
 `BCUnresolvable`, hand-built `.frd` parser fixture, full-pipeline fea block,
 missing-ccx ⇒ `not_run` with install hint. ccx-gated tests skip when the
 solver is absent. Toolchain install is documented in
-modules/simulation/README.md (venv pip gmsh; apt calculix-ccx — needed on
-the droplet too).
+modules/simulation/README.md: venv pip gmsh **plus system `libglu1-mesa`**
+(the gmsh wheel dlopens libGLU.so.1 even headless); apt `calculix-ccx` —
+which Debian **trixie dropped** (bookworm ships 2.20-1, Ubuntu noble
+2.21-1), the reason the repo Dockerfile pins python:3.11-slim-bookworm
+(see [[infra-gemma-vllm-amd]]).
 
 Links: [[architecture]] · [[module-1-design]] · [[module-3-analysis]]

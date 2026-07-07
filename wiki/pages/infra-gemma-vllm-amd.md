@@ -3,11 +3,12 @@ type: infra
 title: "Infra: Gemma on vLLM / AMD MI300X + the safebrowse.io lesson"
 status: implemented
 tags: [gemma, vllm, amd, mi300x, providers, http, safebrowse]
-updated: 2026-07-06
+updated: 2026-07-07
 sources:
   - "project brief (2026-07-06)"
   - "mech-eng repo commits c345514, 7f28732 (env audit; surface real fallback reason)"
   - "shared/llm.py:144"
+  - "Dockerfile:14"
 ---
 
 # Infra: Gemma on vLLM / AMD MI300X
@@ -63,5 +64,36 @@ redirect page** instead of the API response. Symptoms:
 Practical mitigations when developing on the filtered network: tunnel to the
 droplet (e.g. SSH port-forward to localhost) or put TLS/a domain in front of it,
 so the filter has nothing to intercept.
+
+## Container (hackathon eligibility) and deployment
+
+Single root `Dockerfile`, no compose. Two verified gotchas baked into it:
+
+- Base is `python:3.11-slim-bookworm`, **pinned deliberately** — Debian
+  trixie (the current `python:*-slim` default) dropped the `calculix-ccx`
+  package ("no installation candidate", verified 2026-07-07); bookworm
+  ships 2.20-1 (Dockerfile:28).
+- The gmsh/cadquery wheels dlopen GL/X libraries even headless; each apt
+  package in the image is justified by a named failure — `libGLU.so.1` from
+  a bare-host `import gmsh`, the libxcursor1…libgomp1 block from
+  `ldd libgmsh.so` "not found" lines (Dockerfile:33).
+
+cadquery/gmsh/pytest/fastapi/uvicorn install into the image's **system
+python, no venv**: the design sandbox spawns `python -I` subprocesses, so
+cadquery must be importable by the image interpreter itself; the heavy pip
+layer sits before the source copy to cache independently of code edits
+(Dockerfile:52-55). Verified in-image: ccx 2.20 on PATH, all module tests
+pass with the ccx-gated FEA tests running (design 17+1 skip, simulation
+20/20). No endpoint or secret is baked in — `VLLM_BASE_URL`, `MODEL_NAME`,
+`MATERIAL`, `CAD_MAX_ITERATIONS`, `UI_USER`, `UI_PASSWORD` are runtime env.
+
+**Droplet deployment** (co-located with Gemma, documented at Dockerfile:14):
+the UI container runs with `--network host` so `localhost:8000` reaches
+vLLM; uvicorn binds **127.0.0.1** so the app is reachable only through
+`cloudflared tunnel --url http://localhost:8080` (quick tunnel, no domain or
+Cloudflare account — prints an `https://<random>.trycloudflare.com` URL),
+never directly on the droplet's public IP. Auth is a mandatory shared HTTP
+Basic credential (see [[architecture]]). Quick-tunnel caveat: the URL
+changes whenever cloudflared restarts.
 
 Links: [[module-1-design]] · [[module-3-analysis]] · [[decisions]] · [[architecture]]

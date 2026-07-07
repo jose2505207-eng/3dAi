@@ -20,12 +20,25 @@ gmsh comes from PyPI into the project venv (already in the dev setup):
 .venv/bin/pip install gmsh          # gmsh SDK, meshes STEP -> C3D10 tets
 ```
 
+The gmsh wheel dlopens system GL libraries even headless — on a bare
+Debian/Ubuntu host `import gmsh` fails with `libGLU.so.1: cannot open shared
+object file` until you install them (confirmed on the droplet 2026-07-07):
+
+```sh
+sudo apt-get install -y libglu1-mesa     # libGLU.so.1 for the gmsh wheel
+```
+
 CalculiX is a system package (no PyPI build). Debian/Ubuntu — laptop **and**
 droplet:
 
 ```sh
 sudo apt-get install -y calculix-ccx     # provides the `ccx` solver binary
 ```
+
+Note: Debian **trixie dropped `calculix-ccx`** ("no installation candidate");
+bookworm ships 2.20-1 and Ubuntu noble 2.21-1. The repo `Dockerfile`
+(python:3.11-slim-**bookworm**) packages this whole toolchain — ccx,
+libglu1-mesa + headless X libs, cadquery, gmsh — into one image.
 
 Non-standard install? Point the module at the binary with `CCX_BIN=/path/to/ccx`.
 If ccx is missing the `fea_static` check reports **not_run** with this install

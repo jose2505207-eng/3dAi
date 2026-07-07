@@ -58,7 +58,9 @@ def mesh_step(step_path: Path, inp_path: Path, mesh_size_mm: float | None = None
     except ImportError as exc:
         raise MeshError(f"gmsh SDK not installed ({exc}) — pip install gmsh") from exc
 
-    gmsh.initialize()
+    # interruptible=False: the default installs a SIGINT handler, which is
+    # main-thread-only — the orchestrator runs this in a worker thread.
+    gmsh.initialize(interruptible=False)
     try:
         gmsh.option.setNumber("General.Terminal", 0)
         gmsh.open(str(step_path))

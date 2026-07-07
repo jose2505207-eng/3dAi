@@ -7,6 +7,7 @@ updated: 2026-07-06
 sources:
   - "project brief (2026-07-06)"
   - "mech-eng repo (hackathon original) commit history"
+  - "scripts/hooks/post-commit"
 ---
 
 # Decision log
@@ -66,5 +67,12 @@ skill never auto-commits.
 **Why:** docs that lag code are worse than none, but per-commit headless LLM
 runs cost tokens and need trust built first — hence manual-first with diffs
 reviewed by a human, and a one-line opt-in for automation later.
+
+**Implementation:** the hook now exists at `scripts/hooks/post-commit` —
+disabled until symlinked into `.git/hooks/` (scripts/hooks/post-commit:5). It
+skips commits that only touch `wiki/`, `.claude/`, or the hook itself
+(scripts/hooks/post-commit:22), has a per-commit escape hatch `WIKI_HOOK=off`
+(scripts/hooks/post-commit:14), and never blocks or fails the commit
+(scripts/hooks/post-commit:43).
 
 Links: [[architecture]]

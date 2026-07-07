@@ -7,12 +7,19 @@ updated: 2026-07-06
 sources:
   - "project brief (2026-07-06)"
   - "mech-eng repo commits c345514, 7f28732 (env audit; surface real fallback reason)"
+  - "shared/llm.py:144"
 ---
 
 # Infra: Gemma on vLLM / AMD MI300X
 
-`status: implemented` refers to the droplet/endpoint itself, which exists and
-worked in the hackathon; the *code* that talks to it in this repo is not built yet.
+The droplet/endpoint exists and worked in the hackathon; the code that talks
+to it now lives in `shared/llm.py` — a stdlib-only OpenAI-compatible client
+built for [[module-1-design]]. Configuration: `VLLM_BASE_URL` (required, no
+default — shared/llm.py:133), `MODEL_NAME` (default `google/gemma-3-27b-it`),
+`LLM_API_KEY`, `LLM_TIMEOUT_S`. It provides `preflight()` — `GET /models`,
+refusing non-JSON (shared/llm.py:144) — and `chat()`, which returns the text
+plus a `CallRecord` (endpoint, model, HTTP status, response id, token usage,
+latency — shared/llm.py:43) as real-call provenance.
 
 ## The serving stack (sponsor-critical)
 
@@ -36,15 +43,22 @@ redirect page** instead of the API response. Symptoms:
   a silent fallback hides that the primary endpoint was never reached, and you
   debug the wrong thing for hours.
 
-### Rules derived from it (binding on all modules)
+### Rules derived from it (binding on all modules, now enforced in shared/llm.py)
 
-1. **Surface real HTTP errors.** Report status code, `Content-Type`, and a body
-   snippet on every failure. Never swallow, never silently fall back.
-2. **Validate the response shape** before parsing: an OpenAI-compatible reply is
-   JSON; `text/html` means interception — say so explicitly in the error.
+1. **Surface real HTTP errors.** Report status code, `Content-Type`, redirect
+   target, and the first ~500 chars of the body on every failure
+   (shared/llm.py:26,90-99). Never swallow, never silently fall back.
+2. **Validate the response shape** before parsing: an OpenAI-compatible reply
+   is JSON; an HTML body raises a distinctly-labeled `html_response` error —
+   "endpoint returned HTML, likely a proxy/filter intercepted the request"
+   (shared/llm.py:28,104-108). Redirects are never followed: a 3xx is
+   surfaced with its `Location`, because that is how the filter answers
+   (shared/llm.py:60).
 3. A configured-but-unreachable primary is an **error state**, not an automatic
-   reroute; the old repo's fix "surface the real reason when generative mode
-   falls back to template" is the precedent.
+   reroute: Module 1 preflights `GET /models` before the first LLM call and
+   refuses to run on failure (modules/design/loop.py:136); an LLM failure
+   mid-loop aborts with the evidence instead of retrying or falling back
+   (modules/design/loop.py:157).
 
 Practical mitigations when developing on the filtered network: tunnel to the
 droplet (e.g. SSH port-forward to localhost) or put TLS/a domain in front of it,

@@ -1,11 +1,12 @@
 ---
 type: architecture
 title: "System architecture: prompt → design → simulation → analysis"
-status: planned
+status: in-progress
 tags: [architecture, pipeline, modules, orchestrator]
-updated: 2026-07-06
+updated: 2026-07-07
 sources:
   - "project brief (2026-07-06)"
+  - "shared/schemas.py:19"
 ---
 
 # System architecture
@@ -13,8 +14,8 @@ sources:
 Natural-language prompt in, engineered part + technical report out. Three
 independent modules plus an orchestrator, rebuilt from the hackathon repo
 **module by module** — each module runs and is tested in full isolation before
-the next is started. Nothing here is implemented yet; this page records the
-target design.
+the next is started. Progress: [[module-1-design]] working,
+[[module-2-simulation]] built (checks + FEA), the rest planned.
 
 ## Data flow
 
@@ -28,7 +29,7 @@ user prompt (natural language)
 [[module-1-design]]      text → Gemma → CadQuery Python → executed →
    │                     parametric STEP/STL solid (self-correction loop)
    ▼  geometry (STEP/STL) + design metadata
-[[module-2-simulation]]  deterministic geometry checks + FEA (CalculiX/FreeCAD)
+[[module-2-simulation]]  deterministic geometry checks + FEA (gmsh + CalculiX)
    │
    ▼  simulation results (checks report + FEA fields)
 [[module-3-analysis]]    Gemma reads results → technical summary for a human
@@ -40,9 +41,13 @@ PyBullet drop/push tests driving redesign).
 
 ## Module contracts
 
-- Modules communicate through **files + typed schemas** (to live in `shared/`),
-  not imports of each other's internals. That is what makes isolated build and
-  test possible.
+- Modules communicate through **files + typed schemas** in `shared/`, not
+  imports of each other's internals. That is what makes isolated build and
+  test possible. Realized: `shared/schemas.py` — the `pass|fail|not_run`
+  check enum (reason mandatory unless pass, shared/schemas.py:19,31) and
+  `SimReport` (`sim_report/v1`), the Module 2 → Module 3 handoff file
+  (shared/schemas.py:53); Module 2 consumes Module 1's run dir as files only
+  (modules/simulation/checks.py:210).
 - Each module ships its own tests and a standalone CLI entry point.
 - Module 1's LLM calls go through the shared provider layer described in
   [[infra-gemma-vllm-amd]] — Gemma on vLLM/AMD MI300X primary, explicit

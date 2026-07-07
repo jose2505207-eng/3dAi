@@ -10,7 +10,10 @@
   proxy/content-filter interception. Redirects are never followed.
   **No silent fallback** — Fireworks/OpenRouter would be explicit,
   configured choices, not rescues.
-- `schemas/` (future) — models shared across modules
-  (DesignRequest, DesignResult, SimResult, AnalysisReport).
+- `schemas.py` — typed contracts between modules (stdlib dataclasses, JSON
+  on disk). `CheckResult` enforces the honesty enum pass|fail|not_run —
+  fail/not_run require a reason, constructing a silent failure raises.
+  `SimReport` (schema `sim_report/v1`) is Module 2's output / Module 3's
+  input, with verdict pass|fail|incomplete and file-hash provenance helpers.
 
 See wiki/pages/infra-gemma-vllm-amd.md and wiki/pages/architecture.md.

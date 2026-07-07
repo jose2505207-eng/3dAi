@@ -41,8 +41,35 @@ def test_run_script_builds_valid_watertight_solid(tmp_path):
     assert report.volume_mm3 > 0
     assert report.is_valid_solid and report.is_closed
     assert report.solid_count == 1
+    assert report.cylindrical_faces >= 1  # hole_d was actually cut
     assert (tmp_path / "part.step").stat().st_size > 0
     assert (tmp_path / "part.stl").stat().st_size > 84
+
+
+def test_run_script_rejects_disconnected_solids(tmp_path):
+    # Two boxes 50 mm apart: union() succeeds but yields 2 floating bodies.
+    code = """
+import cadquery as cq
+result = (cq.Workplane("XY").box(10, 10, 5)
+          .union(cq.Workplane("XY").transformed(offset=(50, 0, 0)).box(10, 10, 5)))
+"""
+    with pytest.raises(CADScriptError, match="2 DISCONNECTED solids") as exc:
+        run_script(code, tmp_path / "p.step", tmp_path / "p.stl")
+    assert exc.value.phase == "validation"
+
+
+def test_run_script_rejects_declared_but_uncut_holes(tmp_path):
+    # hole_diameter is a parameter, but nothing is ever cut — the Gemma
+    # failure mode Module 2 caught on the bracket run.
+    code = """
+import cadquery as cq
+hole_diameter = 6.0
+result = cq.Workplane("XY").box(60, 40, 5)
+"""
+    with pytest.raises(CADScriptError, match="ZERO cylindrical faces") as exc:
+        run_script(code, tmp_path / "p.step", tmp_path / "p.stl")
+    assert exc.value.phase == "validation"
+    assert "hole_diameter" in str(exc.value)  # names the offending parameter
 
 
 def test_run_script_surfaces_real_traceback(tmp_path):

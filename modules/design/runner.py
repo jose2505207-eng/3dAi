@@ -46,6 +46,11 @@ def main() -> int:
     # Watertight/manifold: every shell of every solid must be closed.
     shells = [sh for solid in solids for sh in solid.Shells()]
     is_closed = bool(shells) and all(sh.wrapped.Closed() for sh in shells)
+    # Cylindrical faces: evidence that declared holes were actually cut
+    # (concave/convex not distinguished — bosses count too, same caveat as
+    # Module 2's hole_geometry check).
+    faces = shape.Faces() if hasattr(shape, "Faces") else []
+    cylindrical_faces = sum(1 for f in faces if f.geomType() == "CYLINDER")
 
     cq.exporters.export(result, step_path)
     cq.exporters.export(result, stl_path, tolerance=0.1)
@@ -56,6 +61,7 @@ def main() -> int:
         "solid_count": len(solids),
         "is_valid_solid": is_valid,
         "is_closed": is_closed,
+        "cylindrical_faces": cylindrical_faces,
     }))
     return 0
 

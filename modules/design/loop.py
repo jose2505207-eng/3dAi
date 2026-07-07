@@ -15,7 +15,6 @@ so a template/stub answer can never masquerade as a real Gemma run.
 
 from __future__ import annotations
 
-import ast
 import datetime as dt
 import json
 import logging
@@ -24,7 +23,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from modules.design import prompts
-from modules.design.sandbox import CADScriptError, GeometryReport, run_script
+from modules.design.sandbox import (CADScriptError, GeometryReport,
+                                    extract_parameters, run_script)
 from shared.llm import LLMClient, LLMError
 
 logger = logging.getLogger(__name__)
@@ -79,26 +79,6 @@ class RunRecord:
             "iterations": [it.to_dict() for it in self.iterations],
             "parameters": self.parameters, "outputs": self.outputs,
         }
-
-
-def extract_parameters(code: str) -> dict:
-    """Top-level `NAME = <number>` assignments — the part's parameters."""
-    params: dict = {}
-    try:
-        tree = ast.parse(code)
-    except SyntaxError:
-        return params
-    for node in tree.body:
-        if isinstance(node, ast.Assign) and len(node.targets) == 1 \
-                and isinstance(node.targets[0], ast.Name):
-            value = node.value
-            if isinstance(value, ast.UnaryOp) and isinstance(value.op, ast.USub) \
-                    and isinstance(value.operand, ast.Constant):
-                value = ast.Constant(value=-value.operand.value)
-            if isinstance(value, ast.Constant) and isinstance(value.value, (int, float)) \
-                    and not isinstance(value.value, bool):
-                params[node.targets[0].id] = value.value
-    return params
 
 
 def _now() -> str:

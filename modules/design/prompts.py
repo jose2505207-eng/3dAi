@@ -17,8 +17,14 @@ Hard rules:
 - Imports allowed: `import cadquery as cq`, `import math`, `import numpy as np`. Nothing else.
 - Assign the FINAL combined solid to a variable named `result` (a cq.Workplane).
 - Units are millimeters. Build real, manufacturable geometry with sensible wall
-  thicknesses (>= 1.6 mm) and everything unioned into ONE connected solid
-  (no floating bodies).
+  thicknesses (>= 1.6 mm).
+- The part MUST be a SINGLE FUSED SOLID: union ALL features into one body.
+  A result with 2+ disconnected solids FAILS validation — it is
+  unmanufacturable as one part.
+- Any mounting/bolt holes you specify MUST be physically CUT through the
+  material, e.g. `.faces(">Z").workplane().hole(hole_diameter)` or a circle
+  + `cutThruAll()`. A hole that exists only as a named parameter is NOT a
+  hole and FAILS validation (zero cylindrical faces in the solid).
 - Define key dimensions as named variables at the top (parametric style), with
   a short comment tying them to the requirement they satisfy (load, mass, ...).
 - No file I/O, no printing, no exec/eval, no dunder attributes.

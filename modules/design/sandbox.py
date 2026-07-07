@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -23,6 +24,9 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 ALLOWED_IMPORTS = {"cadquery", "math", "numpy"}
+# Same token heuristic as Module 2's hole_geometry check (modules/simulation/
+# checks.py) so the two modules agree on what "parameters specify holes" means.
+HOLE_NAME_RE = re.compile(r"(hole|bore)", re.I)
 FORBIDDEN_NAMES = {
     "open", "exec", "eval", "compile", "__import__", "input", "breakpoint",
     "globals", "locals", "vars", "getattr", "setattr", "delattr", "memoryview",
@@ -48,9 +52,36 @@ class GeometryReport:
     solid_count: int
     is_valid_solid: bool
     is_closed: bool
+    cylindrical_faces: int
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+def extract_parameters(code: str) -> dict:
+    """Top-level `NAME = <number>` assignments — the part's parameters."""
+    params: dict = {}
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return params
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 \
+                and isinstance(node.targets[0], ast.Name):
+            value = node.value
+            if isinstance(value, ast.UnaryOp) and isinstance(value.op, ast.USub) \
+                    and isinstance(value.operand, ast.Constant):
+                value = ast.Constant(value=-value.operand.value)
+            if isinstance(value, ast.Constant) and isinstance(value.value, (int, float)) \
+                    and not isinstance(value.value, bool):
+                params[node.targets[0].id] = value.value
+    return params
+
+
+def hole_parameters(params: dict) -> dict:
+    """Parameters whose name says the part has holes (hole/bore, value > 0)."""
+    return {n: v for n, v in params.items()
+            if isinstance(v, (int, float)) and v > 0 and HOLE_NAME_RE.search(n)}
 
 
 def validate_script(code: str) -> list[str]:
@@ -120,12 +151,24 @@ def run_script(code: str, step_path: Path, stl_path: Path,
     problems: list[str] = []
     if report.solid_count < 1:
         problems.append("the result contains no solid body")
+    if report.solid_count > 1:
+        problems.append(
+            f"the result contains {report.solid_count} DISCONNECTED solids — it must "
+            "be ONE fused body; make every union() operand physically overlap its "
+            "neighbour (share volume)")
     if report.volume_mm3 <= 0:
         problems.append(f"solid volume is {report.volume_mm3:.3f} mm^3 (must be > 0)")
     if not report.is_valid_solid:
         problems.append("OCCT BRepCheck reports the solid as INVALID")
     if not report.is_closed:
         problems.append("the solid is not watertight (an open shell exists)")
+    holes = hole_parameters(extract_parameters(code))
+    if holes and report.cylindrical_faces == 0:
+        problems.append(
+            f"parameters {holes} declare holes but the solid has ZERO cylindrical "
+            "faces — cut the holes through the material with "
+            ".faces(...).workplane().hole(diameter) or cutThruAll(); a hole that "
+            "exists only as a parameter is not a hole")
     if problems:
         raise CADScriptError(
             "validation",

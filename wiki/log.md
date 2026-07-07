@@ -86,3 +86,22 @@ Append-only; newest entry at the bottom. Format defined in wiki/SCHEMA.md.
   (module-2-simulation now implemented).
 - source: git range HEAD~4..HEAD (25aeaef schemas fea block, 8f491a3 FEA
   layer, 76c66b3 tests, 01cafee README); no uncommitted code changes.
+
+## 2026-07-07 — Module 1 hardened against holeless/multi-body parts (workflow: update-from-diff)
+
+- module-1-design.md: documented the two new geometry gates — exactly ONE
+  solid (`solid_count > 1` now fails, modules/design/sandbox.py:154) and
+  declared-holes-must-be-cut (hole/bore parameter with zero cylindrical
+  faces fails, modules/design/sandbox.py:166; face census
+  modules/design/runner.py:53); prompt rules added (single fused solid
+  prompts.py:21, physically cut holes prompts.py:24); recorded the
+  2026-07-07 live failure pattern (2-solid bracket with phantom
+  hole_diameter caught by Module 2) and its fix verification;
+  extract_parameters moved loop.py → sandbox.py:61; test count 15 → 17
+  offline (new gate tests test_sandbox.py:49,61); refreshed shifted
+  path:line citations; updated 2026-07-07.
+- Wikilink check: all links resolve, no red links. index.md regenerated
+  (module-1-design updated 2026-07-07).
+- source: uncommitted changes (git diff HEAD — modules/design/{prompts,
+  sandbox,runner,loop,tests/test_sandbox}.py); live runs
+  outputs/design/20260707-172325-* (fail) and 20260707-182230-* (gates pass).

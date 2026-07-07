@@ -12,13 +12,16 @@
 #     python -m modules.simulation outputs/design/<run-dir>
 #
 # Web UI on the droplet (co-located with Gemma, so VLLM_BASE_URL is
-# localhost; --network host makes localhost:8000 reachable and exposes :8080.
-# NO auth yet — do not expose this publicly until the auth gate is added):
-#   docker run --rm --network host \
+# localhost; --network host makes localhost:8000 reachable). Basic Auth is
+# mandatory (UI_USER/UI_PASSWORD — the server refuses to boot without them)
+# and uvicorn binds 127.0.0.1 so the app is reachable ONLY through the
+# Cloudflare quick tunnel, never on the droplet's public interface:
+#   docker run -d --network host \
 #     -e VLLM_BASE_URL=http://localhost:8000/v1 -e MODEL_NAME=google/gemma-3-27b-it \
-#     -e CAD_MAX_ITERATIONS=8 \
+#     -e CAD_MAX_ITERATIONS=8 -e UI_USER=... -e UI_PASSWORD=... \
 #     -v $(pwd)/outputs:/app/outputs ame:dev \
-#     uvicorn orchestrator.server:app --host 0.0.0.0 --port 8080
+#     uvicorn orchestrator.server:app --host 127.0.0.1 --port 8080
+#   cloudflared tunnel --url http://localhost:8080   # prints the public URL
 
 # -bookworm pinned deliberately: Debian trixie (current python:*-slim default)
 # dropped the calculix-ccx binary package ("no installation candidate",

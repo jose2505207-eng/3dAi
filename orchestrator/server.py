@@ -1,11 +1,21 @@
-"""Minimal no-auth web UI over the pipeline (FastAPI + uvicorn).
+"""Minimal web UI over the pipeline (FastAPI + uvicorn), behind Basic Auth.
 
-    uvicorn orchestrator.server:app --host 0.0.0.0 --port 8080
+    UI_USER=... UI_PASSWORD=... \
+      uvicorn orchestrator.server:app --host 127.0.0.1 --port 8080
 
-DEMO SCOPE, deliberately: jobs live in an in-memory dict (lost on restart),
-there is NO concurrency cap (every POST /run spawns a thread — a pipeline
-run is minutes of LLM + FEA), and NO auth. Do not expose publicly until the
-auth gate is added.
+Bind to 127.0.0.1, NOT 0.0.0.0: the app is meant to be reached only through
+the Cloudflare tunnel (`cloudflared tunnel --url http://localhost:8080`),
+never directly on the droplet's public interface.
+
+AUTH: one shared HTTP Basic credential from UI_USER/UI_PASSWORD, enforced by
+middleware so EVERY route is covered — including the StaticFiles mount, which
+a router-level dependency would NOT protect. Missing env → refuse to start
+(no default credentials, same no-silent-fallback doctrine as the rest of the
+repo).
+
+DEMO SCOPE, deliberately: jobs live in an in-memory dict (lost on restart)
+and there is NO concurrency cap (every POST /run spawns a thread — a
+pipeline run is minutes of LLM + FEA).
 
 The pipeline blocks for minutes, so POST /run returns a job id immediately
 and the run happens in a background thread; the page polls GET /status.
@@ -13,11 +23,15 @@ and the run happens in a background thread; the page polls GET /status.
 
 from __future__ import annotations
 
+import base64
+import binascii
+import os
+import secrets
 import threading
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -26,7 +40,39 @@ from modules.design.__main__ import default_out_dir
 from orchestrator.pipeline import ARTIFACT_NAMES, run_pipeline
 from shared.llm import LLMClient, LLMError
 
+
+def _require_credentials() -> tuple[str, str]:
+    user = os.environ.get("UI_USER", "")
+    password = os.environ.get("UI_PASSWORD", "")
+    if not user or not password:
+        raise RuntimeError(
+            "UI_USER and UI_PASSWORD must both be set — refusing to start the "
+            "web UI without an auth gate (there is no default credential)")
+    return user, password
+
+
+UI_USER, UI_PASSWORD = _require_credentials()  # import-time: uvicorn won't boot without
+
 app = FastAPI(title="agentic-mechanical-engineer")
+
+
+@app.middleware("http")
+async def basic_auth_gate(request: Request, call_next):
+    ok = False
+    header = request.headers.get("Authorization", "")
+    if header.startswith("Basic "):
+        try:
+            user, _, password = base64.b64decode(header[6:]).decode().partition(":")
+        except (binascii.Error, UnicodeDecodeError):
+            user = password = ""
+        # constant-time compares; & (not `and`) so both always run
+        ok = bool(secrets.compare_digest(user.encode(), UI_USER.encode())
+                  & secrets.compare_digest(password.encode(), UI_PASSWORD.encode()))
+    if not ok:
+        return Response(status_code=401, content="authentication required",
+                        headers={"WWW-Authenticate":
+                                 'Basic realm="agentic-mechanical-engineer"'})
+    return await call_next(request)
 
 JOBS: dict[str, dict] = {}  # in-memory only: lost on restart, no concurrency cap
 

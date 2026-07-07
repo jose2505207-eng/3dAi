@@ -10,6 +10,15 @@
 #     python -m modules.design "<prompt>"
 #   docker run --rm -v $(pwd)/outputs:/app/outputs ame:dev \
 #     python -m modules.simulation outputs/design/<run-dir>
+#
+# Web UI on the droplet (co-located with Gemma, so VLLM_BASE_URL is
+# localhost; --network host makes localhost:8000 reachable and exposes :8080.
+# NO auth yet — do not expose this publicly until the auth gate is added):
+#   docker run --rm --network host \
+#     -e VLLM_BASE_URL=http://localhost:8000/v1 -e MODEL_NAME=google/gemma-3-27b-it \
+#     -e CAD_MAX_ITERATIONS=8 \
+#     -v $(pwd)/outputs:/app/outputs ame:dev \
+#     uvicorn orchestrator.server:app --host 0.0.0.0 --port 8080
 
 # -bookworm pinned deliberately: Debian trixie (current python:*-slim default)
 # dropped the calculix-ccx binary package ("no installation candidate",
@@ -41,7 +50,7 @@ WORKDIR /app
 # `python -I` subprocesses, so cadquery must be importable by the image
 # interpreter itself. This heavy layer (cadquery/OCP + gmsh) sits before the
 # source copy so code edits don't re-download it.
-RUN pip install --no-cache-dir cadquery gmsh pytest
+RUN pip install --no-cache-dir cadquery gmsh pytest fastapi uvicorn
 
 COPY . .
 

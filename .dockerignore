@@ -1,0 +1,11 @@
+.git
+.venv
+outputs/
+__pycache__/
+**/__pycache__/
+*.pyc
+wiki/index.md
+.pytest_cache/
+**/.pytest_cache/
+.mypy_cache/
+**/.mypy_cache/

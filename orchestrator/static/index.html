@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>agentic mechanical engineer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#111418; --panel:#1b2027; --text:#e6e9ee; --dim:#9aa4b2;
+          --pass:#2e9e5b; --fail:#d64545; --incomplete:#d69a3c; --accent:#4a8fe7; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:15px/1.5 system-ui, sans-serif; }
+  main { max-width:1000px; margin:0 auto; padding:24px 16px 64px; }
+  h1 { font-size:20px; font-weight:600; }
+  h1 small { color:var(--dim); font-weight:400; }
+  .row { display:flex; gap:8px; }
+  #prompt { flex:1; padding:10px 12px; font:inherit; color:var(--text);
+            background:var(--panel); border:1px solid #333a44; border-radius:8px; }
+  button { padding:10px 20px; font:inherit; font-weight:600; color:#fff;
+           background:var(--accent); border:0; border-radius:8px; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  .stages { display:flex; gap:8px; margin:18px 0 6px; }
+  .stage { padding:4px 14px; border-radius:99px; background:var(--panel);
+           color:var(--dim); border:1px solid #333a44; }
+  .stage.running { color:#fff; border-color:var(--accent); }
+  .stage.running::after { content:" …"; }
+  .stage.ok { color:#fff; border-color:var(--pass); }
+  .stage.failed { color:#fff; border-color:var(--fail); }
+  .badge { display:inline-block; padding:3px 14px; border-radius:99px;
+           font-weight:700; text-transform:uppercase; font-size:13px; }
+  .badge.pass { background:var(--pass); } .badge.fail { background:var(--fail); }
+  .badge.incomplete { background:var(--incomplete); }
+  #error { display:none; white-space:pre-wrap; background:#3a1d1d;
+           border:1px solid var(--fail); border-radius:8px; padding:12px; margin-top:14px; }
+  section { background:var(--panel); border-radius:10px; padding:16px 18px; margin-top:16px; }
+  section h2 { margin:0 0 10px; font-size:15px; color:var(--dim);
+               text-transform:uppercase; letter-spacing:.06em; }
+  table { border-collapse:collapse; width:100%; font-size:14px; }
+  th, td { text-align:left; padding:6px 10px; border-bottom:1px solid #2a313b;
+           vertical-align:top; }
+  th { color:var(--dim); font-weight:600; }
+  td.status-pass { color:var(--pass); font-weight:700; }
+  td.status-fail { color:var(--fail); font-weight:700; }
+  td.status-not_run { color:var(--incomplete); font-weight:700; }
+  td code, pre { font:12px/1.5 ui-monospace, monospace; color:var(--dim);
+                 white-space:pre-wrap; word-break:break-word; }
+  #viewer { width:100%; height:380px; border-radius:8px; background:#0b0e12; display:block; }
+  #summary { line-height:1.65; } #summary table { width:auto; }
+  #summary code { background:#12161b; padding:1px 5px; border-radius:4px; }
+  a { color:var(--accent); }
+  .hidden { display:none; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script type="importmap">
+{ "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<main>
+  <h1>agentic mechanical engineer <small>— prompt → CAD → FEA → review (no auth: demo only)</small></h1>
+  <div class="row">
+    <input id="prompt" placeholder='e.g. "a mounting bracket that holds 500 N with a safety factor of 2, under 200 g"'>
+    <button id="run">Run</button>
+  </div>
+
+  <div class="stages">
+    <span class="stage" id="st-design">design</span>
+    <span class="stage" id="st-simulation">simulation</span>
+    <span class="stage" id="st-analysis">analysis</span>
+    <span id="verdict" class="badge hidden"></span>
+  </div>
+  <div id="error"></div>
+
+  <section id="sec-viewer" class="hidden">
+    <h2>part.stl <span id="dl-links"></span></h2>
+    <canvas id="viewer"></canvas>
+  </section>
+
+  <section id="sec-checks" class="hidden">
+    <h2>checks</h2>
+    <table><thead><tr><th>check</th><th>status</th><th>value</th><th>reason</th></tr></thead>
+    <tbody id="checks-body"></tbody></table>
+  </section>
+
+  <section id="sec-fea" class="hidden">
+    <h2>fea</h2>
+    <pre id="fea-body"></pre>
+  </section>
+
+  <section id="sec-summary" class="hidden">
+    <h2>analysis</h2>
+    <div id="summary"></div>
+  </section>
+</main>
+
+<script type="module">
+import * as THREE from 'three';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const $ = id => document.getElementById(id);
+let pollTimer = null;
+
+$('run').onclick = async () => {
+  const prompt = $('prompt').value.trim();
+  if (!prompt) return;
+  reset();
+  $('run').disabled = true;
+  try {
+    const res = await fetch('/run', { method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ prompt }) });
+    if (!res.ok) throw new Error(`POST /run -> HTTP ${res.status}: ${await res.text()}`);
+    const { job_id } = await res.json();
+    pollTimer = setInterval(() => poll(job_id), 2000);
+  } catch (e) { showError(String(e)); $('run').disabled = false; }
+};
+
+function reset() {
+  clearInterval(pollTimer);
+  for (const s of ['design','simulation','analysis'])
+    $('st-'+s).className = 'stage';
+  $('verdict').className = 'badge hidden';
+  $('error').style.display = 'none';
+  for (const sec of ['sec-viewer','sec-checks','sec-fea','sec-summary'])
+    $(sec).classList.add('hidden');
+}
+
+async function poll(jobId) {
+  let s;
+  try {
+    const res = await fetch(`/status/${jobId}`);
+    if (!res.ok) throw new Error(`GET /status -> HTTP ${res.status}`);
+    s = await res.json();
+  } catch (e) { showError(String(e)); stopPolling(); return; }
+
+  const order = ['design','simulation','analysis'];
+  const cur = order.indexOf(s.stage);
+  order.forEach((name, i) => {
+    const el = $('st-'+name);
+    if (i < cur) el.className = 'stage ok';
+    else if (i === cur)
+      el.className = 'stage ' + (s.state === 'running' ? 'running'
+                                 : s.state === 'done' ? 'ok' : 'failed');
+    else el.className = 'stage';
+  });
+
+  if (s.verdict) {
+    $('verdict').textContent = s.verdict;
+    $('verdict').className = 'badge ' + s.verdict;
+  }
+  if (s.state === 'running' || s.state === 'queued') return;
+
+  stopPolling();
+  // terminal: show the REAL error (never a spinner forever), and every
+  // artifact that was produced — partial failure still has evidence to show.
+  if (s.state === 'error') showError(s.error || 'unknown error');
+  if (s.artifacts['part.stl']) renderSTL(s.artifacts['part.stl'], s.artifacts);
+  if (s.artifacts['sim_report.json']) renderReport(s.artifacts['sim_report.json']);
+  if (s.summary) {
+    $('summary').innerHTML = marked.parse(s.summary);
+    $('sec-summary').classList.remove('hidden');
+  }
+}
+
+function stopPolling() { clearInterval(pollTimer); $('run').disabled = false; }
+function showError(text) {
+  const el = $('error');
+  el.textContent = text;
+  el.style.display = 'block';
+}
+
+async function renderReport(url) {
+  const rep = await (await fetch(url)).json();
+  const tbody = $('checks-body');
+  tbody.innerHTML = '';
+  for (const c of rep.checks || []) {
+    const tr = document.createElement('tr');
+    const cells = [c.name, c.status,
+                   c.value == null ? '' : JSON.stringify(c.value, null, 1),
+                   c.reason || ''];
+    cells.forEach((text, i) => {
+      const td = document.createElement('td');
+      if (i === 1) td.className = 'status-' + c.status;
+      if (i >= 2) { const code = document.createElement('code');
+                    code.textContent = text; td.appendChild(code); }
+      else td.textContent = text;
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  }
+  $('sec-checks').classList.remove('hidden');
+  if (rep.fea) {
+    $('fea-body').textContent = JSON.stringify(rep.fea, null, 2);
+    $('sec-fea').classList.remove('hidden');
+  }
+}
+
+function renderSTL(url, artifacts) {
+  $('sec-viewer').classList.remove('hidden');
+  $('dl-links').innerHTML = Object.entries(artifacts)
+    .map(([n, u]) => `<a href="${u}" download>${n}</a>`).join(' · ');
+
+  const canvas = $('viewer');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  renderer.setSize(w, h, false);
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0b0e12);
+  const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 5000);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+  const key = new THREE.DirectionalLight(0xffffff, 1.2);
+  key.position.set(1, 1, 1);
+  scene.add(key);
+
+  new STLLoader().load(url, geometry => {
+    geometry.computeVertexNormals();
+    geometry.center();
+    const mesh = new THREE.Mesh(geometry,
+      new THREE.MeshStandardMaterial({ color: 0x8fa8c8, metalness: 0.2, roughness: 0.6 }));
+    scene.add(mesh);
+    geometry.computeBoundingSphere();
+    const r = geometry.boundingSphere.radius;
+    camera.position.set(r * 1.8, r * 1.4, r * 1.8);
+    const controls = new OrbitControls(camera, canvas);
+    (function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    })();
+    canvas.dataset.rendered = 'true';   // hook for the headless render check
+  }, undefined, err => showError('STL viewer failed: ' + err));
+}
+</script>
+</body>
+</html>

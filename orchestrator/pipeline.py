@@ -47,12 +47,19 @@ def _artifacts(out_dir: Path) -> dict:
 
 def run_pipeline(prompt: str, out_dir: Path, client: LLMClient, *,
                  max_iterations: int | None = None, with_fea: bool = True,
-                 on_stage: Callable[[str], None] | None = None) -> PipelineResult:
+                 on_stage: Callable[[str], None] | None = None,
+                 on_activity: Callable[[str], None] | None = None) -> PipelineResult:
     """Run design → simulation → analysis into `out_dir`. Never raises for a
     stage failure — the failure and its real evidence live in the result.
-    `on_stage` (if given) is called with each stage name as it starts."""
+    `on_stage` (if given) is called with each stage name as it starts;
+    `on_activity` receives human-readable progress lines DURING stages
+    (per design iteration, with the real error text on a failed one)."""
     out_dir = Path(out_dir)
     result = PipelineResult(out_dir=str(out_dir), ok=False, stage="design")
+
+    def _say(line: str) -> None:
+        if on_activity:
+            on_activity(line)
 
     def _start(stage: str) -> None:
         result.stage = stage
@@ -62,16 +69,43 @@ def run_pipeline(prompt: str, out_dir: Path, client: LLMClient, *,
     def _fail(stage: str, error: str) -> PipelineResult:
         result.stages[stage] = {"ok": False, "error": error}
         result.artifacts = _artifacts(out_dir)
+        _say(f"{stage}: FAILED — {error.splitlines()[0][:200]}")
         return result
+
+    def _snippet(error: str) -> str:
+        lines = [ln.strip() for ln in error.splitlines() if ln.strip()]
+        if not lines:
+            return ""
+        head = lines[0]
+        # "CAD script failed:" alone says nothing — the exception is the
+        # traceback tail's LAST line; pull it up so the log shows the cause.
+        if head.endswith(":") and len(lines) > 1:
+            head = f"{head} {lines[-1]}"
+        return head[:160]
+
+    def _design_activity(attempt: int, budget: int, phase: str,
+                         error: str | None) -> None:
+        head = f"design: iteration {attempt}/{budget}"
+        if phase == "llm" and error is None:
+            _say(f"{head} — asking Gemma for a CadQuery script")
+        elif phase == "ok":
+            _say(f"{head} — valid watertight solid")
+        elif phase == "llm":     # LLM failure aborts the loop; never "retrying"
+            _say(f"{head} — LLM call failed: {_snippet(error)}")
+        else:
+            retry = " — retrying" if attempt < budget else " — budget exhausted"
+            _say(f"{head} — {phase} failed: {_snippet(error)}{retry}")
 
     _start("design")
     try:
-        run_design(prompt, out_dir, client=client, max_iterations=max_iterations)
+        run_design(prompt, out_dir, client=client, max_iterations=max_iterations,
+                   on_iteration=_design_activity)
     except DesignError as exc:
         return _fail("design", str(exc))
     result.stages["design"] = {"ok": True, "error": None}
 
     _start("simulation")
+    _say("simulation: deterministic checks + FEA (gmsh mesh, ccx solve)")
     try:
         report = run_checks(out_dir, with_fea=with_fea)
     except RunDirError as exc:
@@ -79,16 +113,19 @@ def run_pipeline(prompt: str, out_dir: Path, client: LLMClient, *,
     report.write(out_dir / SIM_REPORT_FILENAME)
     result.stages["simulation"] = {"ok": True, "error": None}
     result.verdict = report.verdict
+    _say(f"simulation: verdict {report.verdict}")
 
     # ALWAYS attempt analysis once a sim report exists — a fail/incomplete
     # verdict is exactly what the summary must explain.
     _start("analysis")
+    _say("analysis: asking Gemma for the grounded design review")
     try:
         record = run_analysis(out_dir, client)
     except (AnalysisError, AnalysisInputError) as exc:
         return _fail("analysis", str(exc))
     result.stages["analysis"] = {"ok": True, "error": None}
     result.summary = Path(record.summary_path).read_text()
+    _say("analysis: summary written")
 
     result.ok = True
     result.artifacts = _artifacts(out_dir)

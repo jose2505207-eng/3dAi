@@ -21,6 +21,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from modules.design import prompts
 from modules.design.sandbox import (CADScriptError, GeometryReport,
@@ -87,12 +88,20 @@ def _now() -> str:
 
 def run_design(description: str, out_dir: Path, client: LLMClient | None = None,
                max_iterations: int | None = None,
-               cad_timeout_s: float = 120.0) -> RunRecord:
+               cad_timeout_s: float = 120.0,
+               on_iteration: Callable[[int, int, str, str | None], None] | None = None,
+               ) -> RunRecord:
     """Run the full loop. Returns a successful RunRecord (STEP/STL/script/
     record written under out_dir) or raises DesignError carrying the record.
 
     `client` needs `.model`, `.base_url`, `.preflight()` and `.chat()` — tests
     inject a fake; production uses shared.llm.LLMClient.from_env().
+
+    `on_iteration(attempt, budget, phase, error)` (optional) surfaces live
+    progress to a caller mid-loop — the iteration records are otherwise
+    invisible until the final return / run_record.json. Called at attempt
+    start (phase "llm", error None) and after each iteration outcome
+    (phase llm|safety|execution|validation with the real error, or "ok").
     """
     client = client or LLMClient.from_env()
     budget = max_iterations or int(os.environ.get("CAD_MAX_ITERATIONS",
@@ -121,12 +130,17 @@ def run_design(description: str, out_dir: Path, client: LLMClient | None = None,
                             "error": str(exc)}
         raise _finish_failed(f"preflight failed: {exc}") from exc
 
+    def _notify(attempt: int, phase: str, error: str | None) -> None:
+        if on_iteration:
+            on_iteration(attempt, budget, phase, error)
+
     script, feedback = "", ""
     for attempt in range(1, budget + 1):
         user = (prompts.initial_prompt(description) if not feedback
                 else prompts.retry_prompt(description, script, feedback))
         logger.info("iteration %d/%d: asking %s for a CadQuery script",
                     attempt, budget, client.model)
+        _notify(attempt, "llm", None)
         try:
             text, call = client.chat(prompts.SYSTEM, user)
         except LLMError as exc:
@@ -134,6 +148,7 @@ def run_design(description: str, out_dir: Path, client: LLMClient | None = None,
             record.iterations.append(Iteration(
                 n=attempt, llm=call.to_dict() if call else {"called": True, "error": str(exc)},
                 phase="llm", passed=False, error=str(exc)))
+            _notify(attempt, "llm", str(exc))
             raise _finish_failed(f"LLM call failed on iteration {attempt}: {exc}") from exc
 
         script = prompts.extract_code(text)
@@ -147,11 +162,13 @@ def run_design(description: str, out_dir: Path, client: LLMClient | None = None,
                 passed=False, error=feedback))
             logger.warning("iteration %d failed (%s): %s",
                            attempt, exc.phase, feedback.splitlines()[0][:120])
+            _notify(attempt, exc.phase, feedback)
             continue
 
         record.iterations.append(Iteration(
             n=attempt, llm=call.to_dict(), phase="ok", passed=True,
             geometry=report.to_dict()))
+        _notify(attempt, "ok", None)
         record.success, record.finished = True, _now()
         record.parameters = extract_parameters(script)
         script_path = out_dir / "part.py"

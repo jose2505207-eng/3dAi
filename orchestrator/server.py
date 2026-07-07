@@ -91,10 +91,16 @@ class RunRequest(BaseModel):
 def _run_job(job_id: str, prompt: str, out_dir: Path) -> None:
     job = JOBS[job_id]
     job["state"] = "running"
+
+    def _activity(line: str) -> None:
+        job["activity"] = line
+        job["log"].append(line)
+
     try:
         client = LLMClient.from_env()
         result = run_pipeline(prompt, out_dir, client,
-                              on_stage=lambda s: job.__setitem__("stage", s))
+                              on_stage=lambda s: job.__setitem__("stage", s),
+                              on_activity=_activity)
     except LLMError as exc:            # config error (VLLM_BASE_URL unset)
         job.update(state="error", error=str(exc))
         return
@@ -117,7 +123,7 @@ def start_run(req: RunRequest) -> dict:
     out_dir = default_out_dir(prompt)
     JOBS[job_id] = {"state": "queued", "stage": None, "prompt": prompt,
                     "out_dir": str(out_dir), "verdict": None, "artifacts": {},
-                    "summary": None, "error": None}
+                    "summary": None, "error": None, "activity": None, "log": []}
     threading.Thread(target=_run_job, args=(job_id, prompt, out_dir),
                      daemon=True).start()
     return {"job_id": job_id}
@@ -131,6 +137,8 @@ def status(job_id: str) -> dict:
     return {"state": job["state"], "stage": job.get("stage"),
             "verdict": job.get("verdict"), "error": job.get("error"),
             "summary": job.get("summary"), "out_dir": job["out_dir"],
+            "activity": job.get("activity"),
+            "log": (job.get("log") or [])[-10:],
             "artifacts": {name: f"/artifact/{job_id}/{name}"
                           for name in (job.get("artifacts") or {})}}
 

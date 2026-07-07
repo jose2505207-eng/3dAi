@@ -103,6 +103,18 @@ def test_preflight_failure_refuses_to_run(tmp_path):
     assert on_disk["preflight"]["ok"] is False
 
 
+def test_on_iteration_surfaces_live_progress(tmp_path):
+    client = FakeClient([BROKEN, GOOD])
+    events = []
+    run_design("a plate", tmp_path, client=client,
+               on_iteration=lambda n, b, phase, err: events.append((n, b, phase, err)))
+    # attempt start, failed outcome with the REAL error, attempt start, ok
+    assert [(n, b, p) for n, b, p, _ in events] \
+        == [(1, 5, "llm"), (1, 5, "execution"), (2, 5, "llm"), (2, 5, "ok")]
+    assert "CAD script failed" in events[1][3]
+    assert events[0][3] is None and events[3][3] is None
+
+
 def test_extract_parameters():
     assert extract_parameters("x = 5\ny = -2.5\nname = 'a'\nz = x + 1\nflag = True") \
         == {"x": 5, "y": -2.5}

@@ -44,6 +44,14 @@
   td.status-not_run { color:var(--incomplete); font-weight:700; }
   td code, pre { font:12px/1.5 ui-monospace, monospace; color:var(--dim);
                  white-space:pre-wrap; word-break:break-word; }
+  #activity-now { display:flex; align-items:center; gap:10px; font-weight:600; }
+  .pulse { width:10px; height:10px; border-radius:50%; background:var(--accent);
+           animation: pulse 1.2s ease-in-out infinite; flex:none; }
+  @keyframes pulse { 0%,100% { opacity:.25; transform:scale(.8); }
+                     50% { opacity:1; transform:scale(1.15); } }
+  #activity-log { list-style:none; margin:10px 0 0; padding:0;
+                  font:12px/1.7 ui-monospace, monospace; color:var(--dim); }
+  #activity-log li.failed { color:var(--fail); }
   #viewer { width:100%; height:380px; border-radius:8px; background:#0b0e12; display:block; }
   #summary { line-height:1.65; } #summary table { width:auto; }
   #summary code { background:#12161b; padding:1px 5px; border-radius:4px; }
@@ -73,6 +81,12 @@
     <span id="verdict" class="badge hidden"></span>
   </div>
   <div id="error"></div>
+
+  <section id="sec-activity" class="hidden">
+    <h2>activity</h2>
+    <div id="activity-now"><span class="pulse" id="pulse"></span><span id="activity-text"></span></div>
+    <ul id="activity-log"></ul>
+  </section>
 
   <section id="sec-viewer" class="hidden">
     <h2>part.stl <span id="dl-links"></span></h2>
@@ -125,8 +139,25 @@ function reset() {
     $('st-'+s).className = 'stage';
   $('verdict').className = 'badge hidden';
   $('error').style.display = 'none';
-  for (const sec of ['sec-viewer','sec-checks','sec-fea','sec-summary'])
+  $('activity-log').innerHTML = '';
+  $('activity-text').textContent = '';
+  for (const sec of ['sec-activity','sec-viewer','sec-checks','sec-fea','sec-summary'])
     $(sec).classList.add('hidden');
+}
+
+function renderActivity(s) {
+  if (!s.log || !s.log.length) return;
+  $('sec-activity').classList.remove('hidden');
+  $('pulse').style.display = (s.state === 'running' || s.state === 'queued') ? '' : 'none';
+  $('activity-text').textContent = s.activity || '';
+  const ul = $('activity-log');
+  ul.innerHTML = '';
+  for (const line of s.log) {                 // last ~10, server-truncated
+    const li = document.createElement('li');
+    li.textContent = line;
+    if (/failed|FAILED/.test(line)) li.className = 'failed';
+    ul.appendChild(li);
+  }
 }
 
 async function poll(jobId) {
@@ -152,6 +183,7 @@ async function poll(jobId) {
     $('verdict').textContent = s.verdict;
     $('verdict').className = 'badge ' + s.verdict;
   }
+  renderActivity(s);
   if (s.state === 'running' || s.state === 'queued') return;
 
   stopPolling();

@@ -58,6 +58,7 @@ class SimReport:
     checks: list[CheckResult]
     material: dict | None      # {name, density_g_cm3, source} or None if unresolved
     provenance: dict           # inputs consumed (path, sha256, bytes), timestamp, ...
+    fea: dict | None = None    # Layer 2 block: mesh stats, assumed BCs, results, solver paths
     schema: str = SIM_REPORT_SCHEMA
 
     @staticmethod
@@ -71,6 +72,7 @@ class SimReport:
         return {"schema": self.schema, "verdict": self.verdict,
                 "material": self.material,
                 "checks": [c.to_dict() for c in self.checks],
+                "fea": self.fea,
                 "provenance": self.provenance}
 
     def write(self, path: Path) -> None:
